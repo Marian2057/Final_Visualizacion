@@ -1,0 +1,443 @@
+---
+title: "Informe estadístico sobre la brecha laboral en cuestiones de género en Argentina (1982-2018)"
+author: "Patricia Perrone y Marianela Pi"
+output: 
+  html_document:
+    toc: TRUE
+    toc_float: TRUE
+    code_folding: hide
+    code_download: TRUE
+    pdf_document: default
+      
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Cargar los paquetes necesarios acá
+library(usethis)
+library(readxl)
+library(tidyverse)
+library(ggrepel)
+library(plotrix)
+library(quantmod)
+library(tseries)
+library(gridExtra)
+library(patchwork)
+library(ggpubr)
+library(gt)
+
+```
+
+<center><a href="https://imgbb.com/"><img src="https://i.ibb.co/9ZqpVzh/genero.png" alt="genero" border="0"></a> </center>
+
+
+# Introducción
+
+
+El objetivo de este informe es visibilizar las diferencias que, de acuerdo al género de las personas, pueden encontrarse en el ámbito del mercado de trabajo en Argentina desde el año 1982 hasta 2018, como el desempleo, la cantidad de empleadores/as, la distribución de las tareas domésticas. Para ello se presenta una serie gráficos. 
+
+
+# Exploración de los datos
+
+
+Los datos utilizados en este informe fueron tomados por el [Banco Mundial sobre empleo/desempleo](https://datos.bancomundial.org/indicator/SL.UEM.TOTL.ZS) y género para algunos países de Latinoamérica y el Caribe, entre los años 1970 y 2018. Estos datos fueron provistos en formato de *data-frame* y contienen una cantidad de variables que aportan datos sobre el empleo/desempleo, tipo de empleo/actividad y legislación.
+
+Para ajustar los datos al alcance de este análisis, se utilizarán sólo los datos de Argentina comprendidos entre los años 1982 y 2018, que es el período en donde Argentina relevó datos. Fuera de ese período no hay información disponible.
+
+
+```{r warning=FALSE}
+# Código para cargar o leer los datos
+# Filtramos por país (Argentina) y eliminamos las columnas de años que no tienen datos para simplificar el análisis
+
+empleo_genero <- read.csv("datos/empleo_genero.csv")  |>  
+  filter(pais_region=="Argentina")  |>  
+  select(-pais_region, -codigo_pais_region) 
+
+empleo_genero <- empleo_genero[,-which(colMeans(is.na(empleo_genero)) == 1)]
+
+# Transposición de los datos de la tabla
+empleo_Arg <- pivot_longer(empleo_genero, 
+                           cols=2:36, 
+                           names_to = "Anio", 
+                           values_to = "porcentaje") 
+
+# reemplazo los valores de los años por el número correspondiente
+# Convierto Anio a numérico
+
+empleo_Arg <- empleo_Arg |> 
+  mutate(Anio = str_replace(Anio,"X",""),
+         Anio = as.numeric(Anio))
+
+# Llevamos la tabla a formato Tidy
+empleo_Arg_ancho <- pivot_wider(empleo_Arg, 
+                                names_from = variable, 
+                                values_from = porcentaje)
+
+
+ # Comparación del desempleo por género, filtro variable por desempleo y agrego columna con el sexo
+ desempleo_calificado <- filter(empleo_Arg,variable %in% c("desempleo_educacion_mujeres","desempleo_educacion_hombres"))  |> 
+             mutate(sexo = ifelse(variable == "desempleo_educacion_mujeres","Mujer","Hombre"))
+ 
+# # Retiro los años sin datos para acortar el gráfico
+ desempleo_calificado <- filter(desempleo_calificado, Anio > "2000")
+ 
+
+# Comparación del desempleo por género, filtro variable por desempleo y agrego columna con el sexo
+desempleo <- dplyr::filter(empleo_Arg,variable %in% c("desempleo_mujeres","desempleo_hombres"))  |> 
+             
+             mutate(sexo = ifelse(variable == "desempleo_mujeres","Mujer","Hombre")) 
+
+ 
+ tipo_empleo <- dplyr::filter(empleo_Arg,variable %in% c("empleo_agricultura_mujeres","empleo_agricultura_hombres","empleo_industria_mujeres","empleo_industria_hombres","empleo_servicios_mujeres","empleo_servicios_hombres","empleo_informal_mujeres","empleo_informal_hombres","autoempleo_mujeres","autoempleo_hombres"))  |> 
+               mutate(sexo = ifelse(str_detect(variable,"mujeres"),"Mujer","Hombre"))  |>   
+               mutate(tipo = substring(variable,8,str_length(variable)-8))
+  
+# Corrijo el "autoempleo"
+tipo_empleo$tipo <- str_replace(tipo_empleo$tipo, "leo", "autoempleo")
+
+
+ 
+ empleo_domestico <- dplyr::filter(empleo_Arg,variable %in% c("trabajo_domestico_no_remunerado_mujeres","trabajo_domestico_no_remunerado_hombres")) |> 
+                    mutate(sexo = ifelse(variable == "trabajo_domestico_no_remunerado_mujeres","Mujer","Hombre"))
+
+# Retiro los años sin datos para acortar el gráfico
+empleo_domestico <- dplyr::filter(empleo_domestico, Anio > "2003")
+
+empleadores <- dplyr::filter(empleo_Arg, variable %in% c("empleadoras_mujeres","empleadores_hombres")) %>% 
+    mutate(sexo = ifelse(variable == "empleadoras_mujeres","Mujer","Hombre")) 
+
+ # Comparo las variables desempleo con empleo calificado eliminando los años que no tienen datos
+ Jefes_vs_desempleocal <- union(empleadores, desempleo_calificado) %>%    filter(Anio > 1990) 
+  
+ # Calculo las medias por variable
+ mjefesdescal <- Jefes_vs_desempleocal %>%
+   group_by(variable) %>% 
+      summarise(media = mean(porcentaje,na.rm = TRUE))
+ 
+ # Busco la distribución de la ocupación de las mujeres
+  actividades_mujeres <- empleo_Arg %>%
+    mutate(sexo = ifelse(str_detect(variable,"mujeres"),"Mujer","Hombre")) %>% 
+    filter(sexo == "Mujer") %>% 
+    filter(variable != "empleadoras_mujeres" & variable != "desempleo_educacion_mujeres") %>% 
+    group_by(variable) %>% 
+    summarise(media = mean(porcentaje,na.rm = TRUE))
+ 
+# Gráfico 1  
+  
+  empleo_genero1 <- empleo_Arg %>% 
+  # creo una columna de sexo según el dato de la columna variable
+  mutate(sexo = ifelse(endsWith(variable, "_mujeres"), "mujer", ifelse(endsWith(variable, "_hombres"), "hombre", ""))) %>% 
+  
+    # y ahora se lo extraigo 
+  rename("variable" = "variable") %>% 
+  mutate(variable = str_remove(variable, c("_mujeres"))) %>% 
+  mutate(variable = str_remove(variable, c("_hombres")))  %>% 
+  # ordeno las columnas y dejo afuera las que no necesito (en este caso, en la variable país, me quedo solo con el código ISO)
+  select(c( Anio, variable, sexo, porcentaje))
+  
+  
+  
+  EmpleoAR1 <- gt(head(empleo_genero1,10)) |> 
+      tab_header(title = md("**Distribución del empleo en Argentina**"),
+                 subtitle = "Años 1982 a 2018") |> 
+      cols_label(Anio = "Año", variable = "Estado", sexo = "Sexo", 
+                 porcentaje = "Porcentaje %") |>
+    cols_align(align = "center", columns = everything()) |> 
+    fmt_number(
+      columns = 4:4,
+      decimals = 2,
+      dec_mark = ",",
+      sep_mark = ".") |> 
+    tab_options(
+    table.border.top.color = "white",
+    column_labels.border.top.width = px(3),
+    column_labels.border.top.color = "black",
+    ) |> 
+    tab_source_note(md("*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*")) 
+  
+```
+
+## Descripción y cantidad de observaciones
+
+
+En la tabla que sigue podemos ver el aspecto general del conjunto de datos con el que trabajaremos, de 4 variables y 700 observaciones que muestra la distribución del empleo y el desempleo en Argentina por género y la existencia o no de legislación sobre el acoso sexual. Los datos se muestran como porcentajes. 
+
+
+
+```{r warning=FALSE, fig.alt="Tabla que muestra la distribución del empleo en Argentina, por sexo. Contepla las áreas de empleo como agricultura, industria, servicios, empleo informal, parcial, autoempleo y trabajo doméstico no remunerado, como así también el desempleo, desempleo calificado y el relevamiento de empleadores hombres y mujeres."}
+
+
+EmpleoAR1
+
+```
+
+## Desempleo
+
+¿Por qué debería preocuparnos la brecha de género en lo laboral? La libertad de trabajar, por decisión propia y en condiciones de dignidad, seguridad y equidad, es esencial para el bienestar humano. Garantizar que la mujer goce de este derecho es un objetivo importante en sí mismo. 
+
+El primer análisis que podemos hacer es comparar ciertos datos estadísticos con respecto a la desocupación. En la siguiente tabla se puede observar la diferencia entre los valores con un promedio del 12.22% para las mujeres y del 9.91% para los hombres y cómo sólo en dos años (2001 y 2002) se invirtió la situación en una pequeña diferencia y que luego vuelve a invertirse y la brecha se hace más pronunciada. Dentro de los datos no se encontró ninguna anomalía que sugiera que hay datos incorrectos o Valores imposibles.
+
+```{r warning=FALSE, fig.alt="Tabla con el promedio de desempleo por género y su desvío estándar. Casi 10 % para los hombre y mas de 12 % para las mujeres."}
+# Cálculo de estadísticos
+mdesempleo <- desempleo  |>  group_by(variable)  |>  
+  summarise(media = mean(porcentaje,na.rm = TRUE), 
+            desvio = sd(porcentaje,na.rm = TRUE))
+
+Desempleo <- mdesempleo |> 
+  gt(empleo_Arg_ancho,10) |> 
+  tab_header(title = md("**Desempleo por género en Argentina**")) |> 
+  cols_label(variable = "Desempleo por género", media = "Pormedio (%)", desvio = "Desvío") |> 
+  fmt_number(
+      columns = c(media, desvio),
+      decimals = 2,
+      dec_mark = ",",
+      sep_mark = ".") |> 
+    
+  tab_options(
+    table.border.top.color = "white",
+    column_labels.border.top.width = px(3),
+    column_labels.border.top.color = "black",
+    heading.border.bottom.color = "black")%>% 
+  
+  gtExtras::fmt_symbol_first(
+    column = media,
+    symbol = "%") %>% 
+
+tab_style(
+    style = list(
+      cell_text(color = "#D9325E")
+    ),
+    locations = cells_body(
+      columns = media,
+      rows = media >12))
+
+  
+
+Desempleo
+```
+
+
+Aquí tenemos la comparación del desempleo por año y género, utilizando dos gráficos diferentes (barras y líneas).
+
+
+```{r fig.height=5, fig.width=8, message=TRUE, warning=FALSE, fig.alt="Analisis comparativo de dos gráficos, uno de barras y otro de líneas, respecto a la desocupación en Argentina entre los años 1980 y 2020, donde se puede observar la diferencia sostenida entre géneros con un promedio de desocupación del 12.22% para las mujeres y del 9.91% para los hombres. Los gráficos muestran un período sin datos entre los años 2010 y 2016."}
+
+G1_1 <- ggplot(desempleo,aes(Anio,porcentaje, fill = sexo)) + geom_col(position=position_dodge()) + 
+  scale_fill_manual(values=c("#213A40", "#D9325E")) +
+  theme_classic() +
+  theme(axis.text.x = element_text(size = 9),  
+        axis.text.y = element_text(size = 9),
+        legend.position = "right",
+        legend.box.background= element_rect(color = "grey"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.grid.major.x = element_line(size=0.05, color = "#f2f5f3"),
+        panel.grid.major.y = element_line(size=0.05, color = "#f2f5f3")) +
+  labs(title = "Gráfico 1 - Desempleo por género y año", x = "Año", y = "Distribución (%)") +
+  annotate("text", x = 2011, y = 15, angle = 90,label = "Período sin datos") +
+  annotate("segment", x = 2013, xend = 2013, y = 25, yend = 5,  arrow = arrow()) +
+  annotate("rect", xmin = 2001, xmax = 2001, ymin = 17, ymax = 21, alpha = 0.3)
+
+  G1_2 <- ggplot(desempleo,aes(Anio,porcentaje)) +
+  geom_line(aes(color = sexo),lwd = 1.2)+
+  scale_y_continuous(limits=c(0,25), breaks = c(0,5,10,15,20,25), expand = c(0, 0)) +
+  scale_x_continuous(limits=c(1980,2020),breaks = c(1990,2000,2010,2020), expand = c(0,1))+
+  scale_color_manual(labels = c("Hombres", "Mujeres"), values = c("#213A40", "#D9325E"))+
+  theme_classic()+
+  theme(axis.text.x = element_text(size = 9),  
+        axis.text.y = element_text(size = 9),
+        legend.position = "right",
+        legend.box.background= element_rect(color = "grey"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.grid.major.x = element_line(size=0.05, color = "#f2f5f3"),
+        panel.grid.major.y = element_line(size=0.05, color = "#f2f5f3")) +
+  annotate("text", x = 2011, y = 15, angle = 90,
+       	label = "Período sin datos") +
+  annotate("segment", x = 2013, xend = 2013, y = 25, yend = 5,  arrow = arrow()) +
+  annotate("rect", xmin = 2001, xmax = 2001, ymin = 17, ymax = 21, alpha = .3)   +
+    labs(x = "Año", y = "Distribución (%)",
+         caption = "*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*")
+  
+
+  
+  mdesempleo <- desempleo  |>  
+   group_by(variable) |> 
+   summarise(media = mean(porcentaje,na.rm = TRUE))
+ 
+ mdesempleo2 <- mdesempleo |>  
+   mutate(csum = rev(cumsum(rev(media))), 
+          pos = media/2 + lead(csum, 1),
+         pos = if_else(is.na(pos), media/2, pos),
+          media = round(media, 2))
+  
+ 
+ G1_1 / G1_2  
+```
+
+
+Con cualquiera de los gráficos podemos ver que a lo largo de los años, este comportamiento se mantiene, registrándose una diferencia importante entre los porcentajes de desempleo.
+
+
+## Tipos de actividad
+
+
+A pesar de que las mujeres entran cada día con más fuerza al mercado laboral remunerado, consideramos que todavía se le hace difícil desarrollarse en cualquier sector. Típicamente, cuando pensamos en los trabajos generados en el sector de la construcción o en el transporte, lo primero que se nos viene a la cabeza son los hombres. Nos cuesta imaginarnos a una mujer en estas ocupaciones tradicionalmente consideradas como “masculinas” y cuando hablamos de trabajo doméstico lo relacionamos con un rol "femenino". En el gráfico 2 podemos apreciar que en el sector de servicios las mujeres superan el 80% y en la industria, donde la brecha está muy marcada, no supera el 12%.
+
+
+Esta tabla contiene información sobre el tipo de actividad realizada en el empleo. También está por género y año. Una observación a tener en cuenta es que, si bien se releva el empleo parcial para las mujeres, no se relevó para los hombres. Debido a que esta variable no puede ser comparada.
+
+
+```{r warning=FALSE, fig.align='center', fig.alt="El gráfico 2 es de barras y representa el tipo de actividades (Agrigultura, Autoempleo, Industria, Trabajo-Informal y servicios) en el eje x y la distribucion en porcentaje en el eje y del 0 al 75%. Se compara según sexo y lo que podemos apreciar es que en el sector de servicios las mujeres superan el 80% y en la industria, donde la brecha está muy marcada, no supera el 12%."}
+
+
+# Grafico por tipo de actividad
+
+G2 <- ggplot(tipo_empleo,aes(tipo,porcentaje, fill = sexo)) + 
+  geom_col(position=position_dodge()) + 
+  scale_fill_manual(values=c("#213A40", "#D9325E")) +
+  theme_classic() +
+  theme(legend.box.background= element_rect(color = "grey")) +
+  labs(title = "Gráfico 2 - Distribución del empleo por tipo de actividad y género", 
+       x = "Tipo de Actividad", y = "Distribución (%)",
+       caption = "*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*")
+
+G2
+```
+
+
+La segregación horizontal establece las ocupaciones y actividades que la sociedad considera adecuadas para las mujeres o los varones, como podemos observar en el gráfico de tipo de empleo donde muestra que en el sector de la industria la brecha es mucho mayor que en otras actividades, lo que restringe las posibilidades de realización personal y profesional de cada persona.
+
+
+## Desempleo calificado
+
+
+La población de mujeres con nivel terciario desempleadas llega casi al 6%, mientras que los varones apenas superan el 4%. Si bien las credenciales educativas de las mujeres parecieran favorecer su participación en el mercado de trabajo, cuando analizamos los datos como mujeres trabajadoras sigue en evidencia la situación de desventaja para ellas.
+
+```{r, fig.width=10, fig.height=5, fig.align='center', warning=FALSE, fig.alt="Gráfico de barras con el desempleo femenino y masculino, con educación terciaria. En el inicio muestra un porcentaje muy elevado de desempleo coincidente con la crisis del 2001, que decrece en los siguientes tres años y que al estabilizarce, sigue mostrando el desempleo femenino por encima del masculino"}
+
+# Gráfico de desempleo calificado
+
+G3 <- ggplot(desempleo_calificado,aes(Anio,porcentaje, fill = sexo, na.rm = TRUE)) +  
+  theme_classic()+
+  geom_col(position=position_dodge()) + 
+  scale_fill_manual(values=c("#213A40", "#D9325E")) +
+  labs(title = "Gráfico 3 - Desempleo femenino y masculino, con educación terciaria, por año", 
+       x = "Año", y = "Distribución (%)",
+       caption = "*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*") +
+  annotate("text", x = 2000, y = 5, angle = 90,
+       	label = "Crisis del 2001") +
+  annotate("segment", x = 2001, xend = 2001, y = 15, yend = 1,  arrow = arrow()) +
+  annotate("text", x = 2006, y = 10, angle = -65,
+       	label = "Baja el desempleo") +
+  annotate("segment", x = 2004, xend = 2007, y = 15, yend = 4,  arrow = arrow()) +
+  annotate("text", x = 2012, y = 7, angle = 0,
+       	label = "Pero el desempleo femenino sigue por encima")
+
+G3
+```
+
+
+## Empleadores por género
+
+
+Quizás viendo los datos anteriores uno pensaría que esa brecha puede originarse en la falta de educación o que los hombres están más preparados académicamente que las mujeres y de esa manera tener más oportunidades en el campo laboral dejando de lado la famosa teoría del techo de cristal, esa barrera invisible que impide que las mujeres alcancen las mismas posiciones de poder que los hombres y que está relacionada directamente con las normas y los estereotipos.  Ahí nos surgen las siguientes preguntas **¿Las mujeres con el mismo nivel académico que los hombres tienen las mismas oportunidades de ocupar un puesto jerárquico?, ¿y cuando hablamos de cargos jerárquicos? ¿qué tanta diferencia hay entre los ingresos de los hombres y de las mujeres?**
+
+Si bien el desempleo calificado es generalizado tanto para la mujer como para el hombre, la mujer tiende a tener un índice mayor de desempleo generando una brecha porcentual del 1.81. Viendo este número uno pensaría que la brecha de empleadores/as estaría rondando en un porcentaje similar si existiesen las mismas oportunidades. 
+
+```{r,fig.width=10, fig.height=5, fig.align='center', warning=FALSE, fig.alt="El gráfico 4 es un gráfico de barras que representa Empleadores por genero y año (años 1990 al 2018) en el eje x y la distribución en porcentaje en el eje y del 0 al 8%. Una línea horizaontal atravieza el gráfico en 3.13, porcentaje debajo del cual se encuentran todas las barras femeninas"}
+
+G4 <- ggplot(empleadores, aes(Anio,porcentaje, fill = sexo, na.rm = TRUE)) +
+  geom_col(position=position_dodge()) + 
+  scale_fill_manual(values=c("#213A40", "#D9325E")) +
+  scale_color_manual(labels= c("Hombres","Mujeres"), values = c("#213A40", "#D9325E"))+
+  labs(title = "Gráfico 4 - Empleadores por género y año", x = "Años", y = "Distribución (%)", color = "Sexo",
+       caption = "*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*")+
+  scale_x_continuous(limits=c(1990,2020), breaks = c(1990,1995,2000,2005,2010,2015,2020)) +
+  scale_y_continuous(limits = c(0,8), breaks = c(seq(0,8,1)), expand = c(0,0)) +
+  annotate("segment", x = 1990, xend = 2019, y = 3.14, yend = 3.14, color = "darkorange", size = 1) +
+  theme_classic() +
+  theme(legend.box.background= element_rect(color = "grey"))
+    
+
+G4
+```
+
+
+El porcentual de empleadores/as alcanza el 3.13 % cuando la diferencia de desempleo nivel terciario como mencionamos anteriormente era del 1.81 % y eso muestra la desventaja que existe entre el hombre y la mujer a la hora de tener oportunidades laborales,como también de ser considerada para un puesto jerárquico.
+
+
+```{r warning=FALSE, cache=FALSE, message=FALSE, fig.align='center', fig.alt="El gráfico 5 es un gráfico de dispersión con eje medio y smooth que representa: Empleadores por genero y año (años 1990 al 2018) en el eje x y la distribución en porcentaje en el eje y del 0 al 6%. En el gáfico sucede algo bastante particular, y es que, mientras el porcentaje promedio de empleadores tiene una clara caída con una pendiente bien marcada, el porcentaje de empleadoras se mantuvo bastante estable a través de los años observados."}
+
+
+G5 <-empleadores %>% 
+  group_by(factor(sexo)) %>% 
+  ggplot(aes(Anio,porcentaje))+
+  geom_point(aes(color=factor(sexo)), size=2, alpha = 0.8)+
+  geom_smooth(aes(color=sexo), span=0.8, method = "lm")+
+  scale_color_manual(labels= c("Hombres","Mujeres"), values = c("#213A40", "#D9325E"))+
+  labs(title = "Gráfico 5 - Empleadores por género y año", x = "Años", y = "Distribución (%)", color = "Sexo",
+       caption = "*Fuente: Banco Mundial sobre empleo/desempleo y género para Latinoamérica y Caribe (1970 a 2018)*")+
+  scale_x_continuous(limits=c(1990,2018),breaks = c(1990,1995,2000,2005,2009,2013,2018)) +
+  theme_classic()+
+  theme(axis.text.x = element_text(size = 9),  
+        axis.text.y = element_text(size = 9),
+        legend.title.align = 0.5,
+        legend.box.background= element_rect(color = "grey"),
+        axis.ticks = element_blank(),
+        panel.grid = element_blank(),
+        panel.grid.major.x = element_line(size=0.05, color = "#f2f5f3"),
+        panel.grid.major.y = element_line(size=0.05, color = "#f2f5f3")) 
+
+
+G5
+```
+
+
+
+En el gráfico 5 - Empleadores por género y año podemos observar algo bastante particular, y es que, mientras el porcentaje promedio de empleadores tiene una clara caída con una pendiente bien marcada, el porcentaje de empleadoras se mantuvo bastante estable a través de los años observados, a pesar de que mostró una inflexión similar entre los años 2005 y 2007 aproximadamente. Si bien no tenemos datos suficientes para demostrarlo, nuestra sospecha es que la misma desigualdad ha provocado que las mujeres que logran alcanzar un puesto de jefas, lo hagan con mucha más solidez que los hombres, lo que en épocas de inestabilidad económica se traduzca en una menor caída en esos puestos de trabajo. Otro dato notable para destacar es que a pesar de existir una caida pronunciada en el porcentaje empleadores hombres, no existe una subida pronunciada en empleadoras mujeres que indique que fueron adquiriendo más oportunidades, por el contrario se mantuvo estable. 
+
+
+```{r warning=FALSE, cache=FALSE, message=FALSE, fig.align='center', fig.alt="El gráfico 6 es un gráfico de bigotes comparando las variablles empleadores y desempleo calificado, según genero (porcentaje 2 al 14) en el eje x y las variables jefes, jefas, desempleo calificado mujeres y hombres en el eje y. La dispersión en la variable jefas_mujeres es muy pequeña y casi todos los valores están muy cercanos a la media. Ni siquiera los valores extremos se apartan demasiado, a diferencia del caso de jefes_hombres."}
+
+
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "mujeres", " M")
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "hombres", " H")  
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "desempleo_educacion_", "Desempleo Calificado")
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "empleadores_", "Jefe") 
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "empleadoras_", "Jefa") 
+
+G6 <- boxplot(Jefes_vs_desempleocal$porcentaje ~ Jefes_vs_desempleocal$variable,
+        horizontal = TRUE,
+        col = c("#3E95AB","#D9325E", "#4169E1", "#696969"), 
+        outbg = "black", 
+        outpch = 23,
+        ylab = "",
+        xlab = "Distribución (%)",
+        las = 2,
+        medpch = 19,
+        medcex = 1,
+        medbg = 1)
+  
+title ("Gráfico 6 - Empleadores vs desempleo calificado")
+         
+  
+  legend(8, 4, c("Desempleo Calificado Hombres", "Desempleo Calificado Mujeres", "Jefas", "Jefes"),
+       fill = c("#3E95AB","#D9325E", "#4169E1", "#696969"))
+
+
+```
+
+El gráfico 6 no sólo confirma sino que amplía lo que podemos observar en el gráfico 5. La dispersión en la variable jefas_mujeres es muy pequeña y casi todos los valores están muy cercanos a la media. Ni siquiera los valores extremos se apartan demasiado, a diferencia del caso de jefes_hombres.
+
+
+# Conclusiones
+
+
+Sin lugar a dudas, el análisis realizado permite concluir que aún existe una amplia brecha laboral de género. Si bien las mujeres representan la mitad de la población, su tasa de empleo sigue siendo más baja que la de los varones. La brecha con los hombres es todavía importante, y demuestra que a pesar de tener los mismos niveles de formación profesional las mujeres no tienen las mismas oportunidades y eso hace que el objetivo de igual remuneración por igual trabajo sea una promesa incumplida.
+Por último, cabe destacar que la mujer destina gran parte de su tiempo a las tareas domésticas. Estos aspectos dan cuenta de los roles atribuidos históricamente a varones y mujeres y su incidencia sobre el mercado de trabajo, donde el hombre se encarga del trabajo productivo y la mujer del trabajo reproductivo, restándole tiempo para realizar trabajo remunerado que le permita un mejor desarrollo económico.
+
+
+
+
