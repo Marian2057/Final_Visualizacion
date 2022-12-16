@@ -404,7 +404,7 @@ En el gráfico 5 - Empleadores por género y año podemos observar algo bastante
 
 Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "mujeres", " M")
 Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "hombres", " H")  
-Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "desempleo_educacion_", "Desempleo Calificado")
+Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "desempleo_educacion_", "D.Cal")
 Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "empleadores_", "Jefe") 
 Jefes_vs_desempleocal$variable <- str_replace(Jefes_vs_desempleocal$variable, "empleadoras_", "Jefa") 
 
